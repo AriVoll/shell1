@@ -1,0 +1,52 @@
+name: CI/CD
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run tests
+      run: |
+        docker build -t kubsh-test .
+        docker run --rm --privileged \
+          -v $(pwd):/opt \
+          kubsh-test /bin/bash -c "chmod +x /opt/check.sh && /opt/check.sh"
+        
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build .deb
+      run: |
+        sudo apt update
+        sudo apt install -y g++ make libreadline-dev devscripts debhelper
+        
+        mkdir -p kubsh-package/usr/local/bin
+        mkdir -p kubsh-package/DEBIAN
+        
+        g++ -std=c++11 -o kubsh-package/usr/local/bin/kubsh src/main.cpp -lreadline
+        
+        cat > kubsh-package/DEBIAN/control << EOF
+        Package: kubsh
+        Version: 1.0
+        Section: utils
+        Priority: optional
+        Architecture: amd64
+        Maintainer: CI Builder
+        Description: Custom shell with VFS
+        EOF
+        
+        dpkg-deb --build kubsh-package kubsh.deb
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kubsh-deb
+        path: kubsh.deb
